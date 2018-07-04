@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <cstring>
 #include "mbedtls/aes.h"
 #include "mbedtls/sha512.h"
 using namespace std;
@@ -8,16 +9,17 @@ using namespace std;
 
 int main(int argc, char* argv[])
 {
-    if (argc != 2){
-        cerr << "/path/to/encrypted" << endl;
+    if (argc != 3){
+        cerr << "password /path/to/encrypted" << endl;
         return 1;
     }
 
-    ifstream infile(argv[1]);
+    ifstream infile(argv[2]);
     std::stringstream z;
+    std::stringstream h;
 
     if (!infile) {
-        cerr << "Can't open file: " << argv[1] << endl;
+        cerr << "Can't open file: " << argv[2] << endl;
         return 3;
     }
 
@@ -36,15 +38,46 @@ int main(int argc, char* argv[])
     mbedtls_sha512_starts( &ct, 0 );
     mbedtls_aes_init( &ctx );
 
+    for (int i = 0; i < 16 && i < strlen(argv[1]); i++) {
+        key[i] = argv[1][i];
+    }
+
     mbedtls_aes_setkey_dec(&ctx, key, 128);
 
-    for (int i = 0; inlen - i >= 1; i = i+inblock_size) {
+    for (int i = 0; inlen - i > 64 + inblock_size; i = i+inblock_size) {
         infile.read((char*)input, inblock_size);
         mbedtls_aes_crypt_cbc( &ctx, MBEDTLS_AES_DECRYPT, inblock_size, iv, input, output);
+        mbedtls_sha512_update( &ct, output, inblock_size );
         z.write((char*)output, inblock_size);
     }
 
-    std::cout << z.str();
+    infile.read((char*)input, inblock_size);
+    mbedtls_aes_crypt_cbc( &ctx, MBEDTLS_AES_DECRYPT, inblock_size, iv, input, output);
+    mbedtls_sha512_update( &ct, output, inblock_size );
+
+
+    int i = inblock_size - 1;
+    for (; i >= 0; i--) {
+        if (output[i] != 0x01) {
+            break;
+        }
+    }
+
+    z.write((char*)output, i+1);
+    mbedtls_sha512_finish( &ct, hash_output );
+    unsigned char given_hash[64];
+    infile.read((char*)given_hash, 64);
+
+    for (size_t i = 0; i < 64; ++i){
+        if (given_hash[i] != hash_output[i]){
+            cerr << "nok, damaged message" << endl;
+            break;
+        }
+    }
+    cout << "\nok" << endl;
+    cout << z.str();
+
+
 
     return 0;
 }

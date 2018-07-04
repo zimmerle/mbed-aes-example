@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <cstring>
 #include "mbedtls/aes.h"
 #include "mbedtls/sha512.h"
 using namespace std;
@@ -8,13 +9,13 @@ using namespace std;
 
 int main(int argc, char* argv[])
 {
-    if (argc != 3){
-        cerr << "/path/to/plain/text /path/to/encrypted" << endl;
+    if (argc != 4){
+        cerr << "password /path/to/plain/text /path/to/encrypted" << endl;
         return 1;
     }
 
-    ifstream infile(argv[1]);
-    ofstream outfile(argv[2]);
+    ifstream infile(argv[2]);
+    ofstream outfile(argv[3]);
     if (!infile || !outfile) {
         cerr << "Can't open files " << endl;
         return 3;
@@ -30,7 +31,14 @@ int main(int argc, char* argv[])
     unsigned char input[inblock_size];
     unsigned char output[inblock_size];
     unsigned char hash_output[64];
+    mbedtls_sha512_context ct;
+    mbedtls_sha512_init( &ct );
+    mbedtls_sha512_starts( &ct, 0 );
     mbedtls_aes_init( &ctx );
+
+    for (int i = 0; i < 16 && i < strlen(argv[1]); i++) {
+        key[i] = argv[1][i];
+    }
 
     mbedtls_aes_setkey_enc(&ctx, key, 128);
 
@@ -38,6 +46,7 @@ int main(int argc, char* argv[])
         infile.read((char*)input, inblock_size);
         mbedtls_aes_crypt_cbc( &ctx, MBEDTLS_AES_ENCRYPT, inblock_size, iv, input, output);
         outfile.write((char*)output, inblock_size);
+        mbedtls_sha512_update( &ct, input, inblock_size);
     }
 
     infile.read((char*)input, inlen % inblock_size);
@@ -47,6 +56,9 @@ int main(int argc, char* argv[])
 
     mbedtls_aes_crypt_cbc( &ctx, MBEDTLS_AES_ENCRYPT, inblock_size, iv, input, output);
     outfile.write((char*)output, inblock_size);
+    mbedtls_sha512_update( &ct, input, inblock_size );
+    mbedtls_sha512_finish( &ct, hash_output );
+    outfile.write((char*)hash_output, 64);
 
     return 0;
 }
